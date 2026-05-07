@@ -75,3 +75,4 @@ htmlcov/
 # GCP credentials (never commit)
 credentials/*.json
 !credentials/.gitkeep
+gcp-sa.json
