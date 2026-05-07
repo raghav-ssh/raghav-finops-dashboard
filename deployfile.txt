@@ -1,0 +1,62 @@
+Here's the step-by-step deployment process:
+
+Step 1 — One-time GCP setup
+# Create Artifact Registry repo
+gcloud artifacts repositories create finops-reports \
+  --repository-format=docker \
+  --location=asia-south1 \
+  --project=ssh-marine
+
+# Get your GKE cluster credentials (replace with your cluster name)
+gcloud container clusters get-credentials ssh-v2-dev \
+  --zone=asia-south1-a \
+  --project=ssh-marine
+Step 2 — Prepare the GCP SA secret
+# Encode your service account key
+base64 -w 0 weeklyreports/credentials/gcp-sa.json
+Copy the output and replace <BASE64_ENCODED_GCP_SA_JSON> in 
+secret.yaml
+.
+
+Step 3 — Apply Kubernetes manifests
+cd weeklyreports
+
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/secret.yaml
+kubectl apply -f k8s/backend-deployment.yaml
+kubectl apply -f k8s/frontend-deployment.yaml
+kubectl apply -f k8s/ingress.yaml
+Step 4 — Install NGINX Ingress (if not already on your cluster)
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
+Step 5 — Grant Cloud Build permissions
+PROJECT_NUMBER=$(gcloud projects describe ssh-marine --format='value(projectNumber)')
+CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding ssh-marine \
+  --member="serviceAccount:${CB_SA}" \
+  --role="roles/container.developer"
+
+gcloud projects add-iam-policy-binding ssh-marine \
+  --member="serviceAccount:${CB_SA}" \
+  --role="roles/artifactregistry.writer"
+Step 6 — Update cloudbuild.yaml with your cluster name
+In cloudbuild.yaml, update:
+
+substitutions:
+  _CLUSTER_NAME: YOUR_CLUSTER_NAME   # ← change this
+  _CLUSTER_ZONE: asia-south1-a
+Step 7 — Set up Cloud Build trigger
+In GCP Console → Cloud Build → Triggers:
+
+Connect your Git repo
+Set branch to main
+Set config file to 
+cloudbuild.yaml
+Save and run
+Step 8 — Get the external IP
+kubectl get ingress -n finops
+Wait for the ADDRESS field — then access:
+
+Frontend: http://<IP>/ssh-gcp-costing/
+Backend: http://<IP>/ssh-gcp-costing-backend/health
+After the first manual deploy, every push to main will automatically build, push images, and roll out to the cluster via Cloud Build.

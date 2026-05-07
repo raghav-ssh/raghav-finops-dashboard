@@ -1,0 +1,122 @@
+steps:
+  # Step 1: Build backend image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-backend'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/finops-backend:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/finops-backend:latest'
+      - '-f'
+      - 'Dockerfile'
+      - '.'
+    dir: 'weeklyreports'
+
+  # Step 2: Build frontend image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-frontend'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/finops-frontend:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/finops-frontend:latest'
+      - '-f'
+      - 'frontend/Dockerfile.frontend'
+      - '--build-arg'
+      - 'VITE_API_URL=/ssh-gcp-costing-backend'
+      - '.'
+    dir: 'weeklyreports/frontend'
+
+  # Step 3: Push backend image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-backend'
+    waitFor: ['build-backend']
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/finops-backend'
+
+  # Step 4: Push frontend image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-frontend'
+    waitFor: ['build-frontend']
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/finops-frontend'
+
+  # Step 5: Get GKE credentials
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'get-credentials'
+    waitFor: ['push-backend', 'push-frontend']
+    entrypoint: 'gcloud'
+    args:
+      - 'container'
+      - 'clusters'
+      - 'get-credentials'
+      - '${_CLUSTER_NAME}'
+      - '--zone=${_CLUSTER_ZONE}'
+      - '--project=${PROJECT_ID}'
+
+  # Step 6: Apply k8s manifests
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'apply-manifests'
+    waitFor: ['get-credentials']
+    entrypoint: 'kubectl'
+    args:
+      - 'apply'
+      - '-f'
+      - 'weeklyreports/k8s/'
+
+  # Step 7: Update backend image in deployment
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'rollout-backend'
+    waitFor: ['apply-manifests']
+    entrypoint: 'kubectl'
+    args:
+      - 'set'
+      - 'image'
+      - 'deployment/finops-backend'
+      - 'finops-backend=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/finops-backend:${SHORT_SHA}'
+      - '-n'
+      - 'finops'
+
+  # Step 8: Update frontend image in deployment
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'rollout-frontend'
+    waitFor: ['apply-manifests']
+    entrypoint: 'kubectl'
+    args:
+      - 'set'
+      - 'image'
+      - 'deployment/finops-frontend'
+      - 'finops-frontend=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/finops-frontend:${SHORT_SHA}'
+      - '-n'
+      - 'finops'
+
+  # Step 9: Verify rollout
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'verify-rollout'
+    waitFor: ['rollout-backend', 'rollout-frontend']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        kubectl rollout status deployment/finops-backend -n finops --timeout=120s
+        kubectl rollout status deployment/finops-frontend -n finops --timeout=120s
+        echo "=== Deployment complete ==="
+        kubectl get pods -n finops
+
+substitutions:
+  _REGION: asia-south1
+  _REPO: finops-reports
+  _CLUSTER_NAME: ssh-v2-dev
+  _CLUSTER_ZONE: asia-south1-a
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+timeout: '1200s'

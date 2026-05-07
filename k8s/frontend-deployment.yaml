@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-frontend
+  namespace: finops
+  labels:
+    app: finops-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: finops-frontend
+  template:
+    metadata:
+      labels:
+        app: finops-frontend
+    spec:
+      containers:
+        - name: finops-frontend
+          image: asia-south1-docker.pkg.dev/ssh-marine/finops-reports/finops-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-frontend
+  namespace: finops
+spec:
+  selector:
+    app: finops-frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP

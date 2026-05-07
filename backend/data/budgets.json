@@ -1,0 +1,22 @@
+{
+    "prod": {
+        "daily": 25000.0,
+        "weekly": 180000.0,
+        "monthly": 800000.0
+    },
+    "uat": {
+        "daily": 8000.0,
+        "weekly": 48000.0,
+        "monthly": 200000.0
+    },
+    "dev": {
+        "daily": 5000.0,
+        "weekly": 25000.0,
+        "monthly": 150000.0
+    },
+    "UNLABELED": {
+        "daily": 7000.0,
+        "weekly": 49000.0,
+        "monthly": 300000.0
+    }
+}
